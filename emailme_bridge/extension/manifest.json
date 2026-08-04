@@ -1,0 +1,32 @@
+{
+  "manifest_version": 2,
+  "name": "Emailme Bridge",
+  "version": "1.1",
+  "description": "Sends selected text, links, images, or the current page to a local capture pipeline via native messaging.",
+  "permissions": ["nativeMessaging", "tabs", "contextMenus", "<all_urls>"],
+  "browser_action": {
+    "default_title": "#emailme",
+    "default_icon": {
+      "48": "icon-48.png",
+      "96": "icon-96.png"
+    }
+  },
+  "commands": {
+    "_execute_browser_action": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+F"
+      }
+    }
+  },
+  "background": {
+    "scripts": ["background.js"]
+  },
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "emailme-bridge@klif.local",
+      "data_collection_permissions": {
+        "required": ["none"]
+      }
+    }
+  }
+}

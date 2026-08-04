@@ -1,0 +1,5 @@
+__pycache__/
+config.py
+emailme_watcher.log
+*backup*
+emailme_bridge/com.klif.emailme_bridge.json
