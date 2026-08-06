@@ -591,6 +591,15 @@ def synthesize_note_for_orphan_image(image_path: Path):
 # STEP 4 - build and send the email
 # ---------------------------------------------------------------------------
 
+def get_source_label(url):
+    try:
+        host = urlparse(url).netloc
+        if host.startswith("www."):
+            host = host[4:]
+        return host
+    except Exception:
+        return None
+
 def build_and_send_email(classification: dict, link_data_list: list, image_path):
     """
     Assemble subject + HTML body from whatever combination of text/links/image
@@ -635,7 +644,13 @@ def build_and_send_email(classification: dict, link_data_list: list, image_path)
         for link in link_data_list:
             if classification["tag"] == "YT" and link.get("channel"):
                 html_parts.append(f"<p style='{META_STYLE}'>{html_module.escape(link['channel'])}</p>")
-            elif link.get("description"):
+            elif not link.get("reddit_subreddit"):
+                source = get_source_label(link.get("final_url", ""))
+                if source:
+                    html_parts.append(f"<p style='{META_STYLE}'>Source: {html_module.escape(source)}</p>")
+            if link.get("published"):
+                html_parts.append(f"<p style='{META_STYLE}'>{html_module.escape(link['published'])}</p>")
+            if link.get("description"):
                 html_parts.append(f"<p>{html_module.escape(link['description'])}</p>")
             if link.get("image_url"):
                 html_parts.append(
@@ -689,6 +704,11 @@ def build_and_send_email(classification: dict, link_data_list: list, image_path)
                 if link.get("reddit_method"):
                     html_parts.append(f"<p style='color:#888;font-size:0.85em;'>[debug: {link['reddit_method']}]</p>")
                 html_parts.append(f"<p style='{TITLE_STYLE}'><a href='{link['final_url']}'>{html_module.escape(link.get('title') or link['final_url'])}</a></p>")
+                source = get_source_label(link.get("final_url", ""))
+                if source:
+                    html_parts.append(f"<p style='{META_STYLE}'>Source: {html_module.escape(source)}</p>")
+                if link.get("published"):
+                    html_parts.append(f"<p style='{META_STYLE}'>{html_module.escape(link['published'])}</p>")
                 if link.get("description"):
                     html_parts.append(f"<p>{html_module.escape(link['description'])}</p>")
                 if link.get("image_url"):
