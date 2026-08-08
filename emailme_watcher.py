@@ -1,22 +1,25 @@
-import re
+import html as html_module
 import json
 import logging
+import msvcrt
+import re
 import shutil
 import smtplib
 import sys
+import time
 import traceback
-from pathlib import Path
-from urllib.parse import urlparse
+import warnings
 from datetime import datetime, timedelta
 from email.message import EmailMessage
 from email.utils import formataddr
-import html as html_module
-import msvcrt
-import time
+from pathlib import Path
+from urllib.parse import urlparse
 
-import warnings
 import requests
 from bs4 import BeautifulSoup, XMLParsedAsHTMLWarning
+
+from config import GMAIL_ADDRESS, GMAIL_APP_PASSWORD
+from config import VAULT_ROOT as VAULT_ROOT_STR
 
 warnings.filterwarnings("ignore", category=XMLParsedAsHTMLWarning)
 
@@ -37,13 +40,10 @@ log = logging.getLogger("emailme")
 # CONFIG - fill these in before running
 # ---------------------------------------------------------------------------
 
-from config import GMAIL_ADDRESS, GMAIL_APP_PASSWORD, VAULT_ROOT as VAULT_ROOT_STR
 VAULT_ROOT = Path(VAULT_ROOT_STR)
 ARCHIVE_DIR = VAULT_ROOT / "archive"
 
-EMAIL_TO = GMAIL_ADDRESS                    # sending to yourself; change if different
-
-IMAGE_MODE = "attachment"  # "attachment" or "inline" - undecided per your notes, pick later
+EMAIL_TO = GMAIL_ADDRESS  # sending to yourself; change if different
 
 # Normal browser User-Agent, so sites don't serve interstitial/verification
 # pages to an obvious script (this was causing the Reddit/aweber title bug).
@@ -67,6 +67,7 @@ IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
 # ---------------------------------------------------------------------------
 
 TIMESTAMP_EXTRACT = re.compile(r"(\d{4})\.(\d{2})\.(\d{2})_(\d{2})\.(\d{2})\.(\d{2})")
+
 
 def extract_timestamp(path: Path):
     """
@@ -96,12 +97,12 @@ def find_unprocessed_notes():
             notes.append(path)
     notes.sort(key=extract_timestamp)
     return notes
-    
 
 
 # ---------------------------------------------------------------------------
 # STEP 2 - classify what's in a note
 # ---------------------------------------------------------------------------
+
 
 def classify_note(text: str, has_image: bool):
     """
@@ -186,7 +187,9 @@ def discover_and_scrape_rss(page_url: str, page_soup):
     declare one. Returns None if no feed is found or nothing usable
     comes back from it.
     """
-    feed_tag = page_soup.find("link", rel="alternate", type=re.compile(r"(rss|atom)\+xml"))
+    feed_tag = page_soup.find(
+        "link", rel="alternate", type=re.compile(r"(rss|atom)\+xml")
+    )
     if not feed_tag or not feed_tag.get("href"):
         return None
 
@@ -208,7 +211,9 @@ def discover_and_scrape_rss(page_url: str, page_soup):
         entry_link = None
         link_tag = entry.find("link")
         if link_tag:
-            entry_link = link_tag.get("href") or (str(link_tag.string) if link_tag.string else None)
+            entry_link = link_tag.get("href") or (
+                str(link_tag.string) if link_tag.string else None
+            )
 
         if entry_link and entry_link.rstrip("/") != page_url.rstrip("/"):
             return None
@@ -219,7 +224,9 @@ def discover_and_scrape_rss(page_url: str, page_soup):
             return None
 
         description = None
-        desc_tag = entry.find("description") or entry.find("summary") or entry.find("content")
+        desc_tag = (
+            entry.find("description") or entry.find("summary") or entry.find("content")
+        )
         if desc_tag and desc_tag.string:
             desc_soup = BeautifulSoup(str(desc_tag.string), "html.parser")
             text = desc_soup.get_text(separator=" ", strip=True)
@@ -235,6 +242,7 @@ def discover_and_scrape_rss(page_url: str, page_soup):
         print("General RSS fallback failed:", e)
         return None
 
+
 def fetch_with_backoff(url: str, headers: dict, timeout: int, max_attempts: int = 3):
     """
     Fetches a URL, retrying with increasing delay only if actually
@@ -248,12 +256,15 @@ def fetch_with_backoff(url: str, headers: dict, timeout: int, max_attempts: int 
         resp = requests.get(url, allow_redirects=True, timeout=timeout, headers=headers)
         if resp.status_code == 429 or resp.status_code >= 500:
             if attempt < max_attempts:
-                print(f"Got {resp.status_code}, retrying in {delay}s (attempt {attempt}/{max_attempts})...")
+                print(
+                    f"Got {resp.status_code}, retrying in {delay}s (attempt {attempt}/{max_attempts})..."
+                )
                 time.sleep(delay)
                 delay *= 2
                 continue
         return resp
     return resp
+
 
 def resolve_and_scrape(url: str):
     """
@@ -284,11 +295,18 @@ def resolve_and_scrape(url: str):
             return tag["content"] if tag and tag.get("content") else None
 
         og_title = og("title")
-        if og_title and "please wait" not in og_title.lower() and "just a moment" not in og_title.lower():
+        if (
+            og_title
+            and "please wait" not in og_title.lower()
+            and "just a moment" not in og_title.lower()
+        ):
             raw_description = og("description")
             author = None
             if raw_description:
-                submitted_match = re.search(r"submitted by /?(u/\S+?)(?:\s*\[link\]|\s*to\s|\s*$)", raw_description)
+                submitted_match = re.search(
+                    r"submitted by /?(u/\S+?)(?:\s*\[link\]|\s*to\s|\s*$)",
+                    raw_description,
+                )
                 if submitted_match:
                     author = submitted_match.group(1)
 
@@ -329,7 +347,11 @@ def resolve_and_scrape(url: str):
         # Layer 3: Reddit's JSON endpoint, kept as a real attempt so it
         # self-heals automatically if Reddit's block ever lifts
         json_data = scrape_reddit_json(final_url)
-        if json_data and json_data.get("title") and not json_data["title"].endswith(")"):
+        if (
+            json_data
+            and json_data.get("title")
+            and not json_data["title"].endswith(")")
+        ):
             print("Reddit method used: JSON")
             json_data["reddit_method"] = "JSON"
             return json_data
@@ -337,7 +359,6 @@ def resolve_and_scrape(url: str):
             # baked in (title ending in "(r/subreddit)"); skip that internal
             # fallback result here so layer 4 below is the single, final
             # slug-parsing attempt rather than running it twice
-            
 
         # Layer 4: parse the title straight from the URL slug, no network
         # request, works even when everything above fails
@@ -355,14 +376,23 @@ def resolve_and_scrape(url: str):
                     "reddit_method": "slug parsing",
                 }
         print("Reddit method used: all methods failed")
-        return {"final_url": final_url, "title": None, "description": None, "image_url": None, "reddit_method": "all methods failed"}
+        return {
+            "final_url": final_url,
+            "title": None,
+            "description": None,
+            "image_url": None,
+            "reddit_method": "all methods failed",
+        }
 
     soup = BeautifulSoup(resp.text, "html.parser")
+
     def og(prop):
         tag = soup.find("meta", property=f"og:{prop}")
         return tag["content"] if tag and tag.get("content") else None
 
-    og_title = og("title") or (str(soup.title.string) if soup.title and soup.title.string else None)
+    og_title = og("title") or (
+        str(soup.title.string) if soup.title and soup.title.string else None
+    )
     if og_title:
         return {
             "final_url": final_url,
@@ -377,7 +407,12 @@ def resolve_and_scrape(url: str):
     if rss_result:
         return rss_result
 
-    return {"final_url": final_url, "title": None, "description": None, "image_url": None}
+    return {
+        "final_url": final_url,
+        "title": None,
+        "description": None,
+        "image_url": None,
+    }
 
 
 def extract_youtube_full_description(page_html: str):
@@ -401,24 +436,30 @@ def extract_youtube_full_description(page_html: str):
         return None
 
     try:
-        contents = (
-            data["contents"]["twoColumnWatchNextResults"]["results"]["results"]["contents"]
-        )
+        contents = data["contents"]["twoColumnWatchNextResults"]["results"]["results"][
+            "contents"
+        ]
         for item in contents:
             video_secondary_info = item.get("videoSecondaryInfoRenderer")
             if video_secondary_info:
-                description_obj = video_secondary_info.get("attributedDescription") or video_secondary_info.get("description")
+                description_obj = video_secondary_info.get(
+                    "attributedDescription"
+                ) or video_secondary_info.get("description")
                 if description_obj and description_obj.get("content"):
                     full_text = description_obj["content"]
                     print(f"YouTube full description extracted: {len(full_text)} chars")
                     return full_text
                 if description_obj and description_obj.get("runs"):
-                    full_text = "".join(run.get("text", "") for run in description_obj["runs"])
+                    full_text = "".join(
+                        run.get("text", "") for run in description_obj["runs"]
+                    )
                     print(f"YouTube full description extracted: {len(full_text)} chars")
                     return full_text
     except (KeyError, IndexError, TypeError):
         pass
-    print("YouTube full description extraction found nothing, will fall back to short og:description")
+    print(
+        "YouTube full description extraction found nothing, will fall back to short og:description"
+    )
     return None
 
 
@@ -431,7 +472,14 @@ def scrape_youtube_oembed(url: str):
     api = f"https://www.youtube.com/oembed?url={url}&format=json"
     resp = requests.get(api, timeout=10, headers=HEADERS)
 
-    if resp.status_code != 200:        return {"final_url": url, "title": None, "description": None, "image_url": None, "channel": None}
+    if resp.status_code != 200:
+        return {
+            "final_url": url,
+            "title": None,
+            "description": None,
+            "image_url": None,
+            "channel": None,
+        }
     data = resp.json()
 
     description = None
@@ -455,6 +503,7 @@ def scrape_youtube_oembed(url: str):
         "image_url": data.get("thumbnail_url"),
         "channel": data.get("author_name"),
     }
+
 
 REDDIT_URL_PATTERN = re.compile(r"reddit\.com/r/([^/]+)/comments/[^/]+/([^/]+)")
 
@@ -504,7 +553,6 @@ def scrape_reddit_rss(url: str):
         return None
 
 
-
 def scrape_reddit_json(url: str):
     """
     Try Reddit's JSON endpoint for title, description, and image.
@@ -525,18 +573,10 @@ def scrape_reddit_json(url: str):
 
     json_url = f"https://www.reddit.com/comments/{post_id}/.json"
 
-    reddit_headers = {
-        "User-Agent": "emailme-script/1.0"
-    }
+    reddit_headers = {"User-Agent": "emailme-script/1.0"}
 
     try:
-        r = requests.get(
-            json_url,
-            headers=reddit_headers,
-            timeout=10
-        )
-
-        
+        r = requests.get(json_url, headers=reddit_headers, timeout=10)
 
         if r.status_code == 200:
             data = r.json()
@@ -547,10 +587,7 @@ def scrape_reddit_json(url: str):
 
             if post.get("preview"):
                 image = (
-                    post["preview"]
-                    .get("images", [{}])[0]
-                    .get("source", {})
-                    .get("url")
+                    post["preview"].get("images", [{}])[0].get("source", {}).get("url")
                 )
 
             return {
@@ -573,6 +610,7 @@ def scrape_reddit_json(url: str):
         "image_url": None,
     }
 
+
 def synthesize_note_for_orphan_image(image_path: Path):
     """
     Create a minimal .md note embedding the orphan image, so it flows
@@ -591,6 +629,7 @@ def synthesize_note_for_orphan_image(image_path: Path):
 # STEP 4 - build and send the email
 # ---------------------------------------------------------------------------
 
+
 def get_source_label(url):
     try:
         host = urlparse(url).netloc
@@ -600,7 +639,41 @@ def get_source_label(url):
     except Exception:
         return None
 
-def build_and_send_email(classification: dict, link_data_list: list, image_path):
+
+# ---------------------------------------------------------------------------
+# Shared email styling - matches the boxed-card look used by r2g and the
+# Mastodon trending digest (output style guide, Category A)
+# ---------------------------------------------------------------------------
+
+CARD_STYLE = (
+    "display:inline-block;"
+    "max-width:60ch;"
+    "border:1px solid #ccc;"
+    "border-radius:8px;"
+    "padding:16px;"
+    'background:#e6e6df;'
+    'font-family:-apple-system,"Segoe UI",Helvetica,Arial,sans-serif;'
+)
+
+TITLE_STYLE = "font-size:16px;font-weight:bold;"
+META_STYLE = "color:#666;font-size:12px;"
+LINK_COLOR = "#3a6ea5"
+
+
+def _a(url: str, inner_html: str) -> str:
+    """A single styled <a> tag - link color, no underline - used everywhere a link appears in the email body."""
+    return f"<a href='{url}' style='color:{LINK_COLOR};text-decoration:none;'>{inner_html}</a>"
+
+
+def format_captured_date(note_path: Path) -> str:
+    """Human-readable capture date, no time (e.g. 'Aug 7, 2026'), from the note's own capture timestamp."""
+    dt = extract_timestamp(note_path)
+    return f"{dt.strftime('%b')} {dt.day}, {dt.year}"
+
+
+def build_and_send_email(
+    classification: dict, link_data_list: list, image_path, note_path: Path
+):
     """
     Assemble subject + HTML body from whatever combination of text/links/image
     is present, then send via Gmail SMTP.
@@ -608,7 +681,11 @@ def build_and_send_email(classification: dict, link_data_list: list, image_path)
     """
     msg = EmailMessage()
 
-    if classification["tag"] == "YT" and link_data_list and link_data_list[0].get("title"):
+    if (
+        classification["tag"] == "YT"
+        and link_data_list
+        and link_data_list[0].get("title")
+    ):
         channel = link_data_list[0].get("channel")
         title = link_data_list[0]["title"]
         subject = f"{channel} - {title}" if channel else title
@@ -627,123 +704,152 @@ def build_and_send_email(classification: dict, link_data_list: list, image_path)
     msg["From"] = formataddr(("#emailme", GMAIL_ADDRESS))
     msg["To"] = EMAIL_TO
 
-    TITLE_STYLE = "font-size:1.2em;font-weight:bold;"
-    META_STYLE = "font-style:italic;color:#666;font-size:0.9em;"
-
+    captured_date = format_captured_date(note_path)
     html_parts = []
 
     if classification["urls"] and classification["has_extra_text"]:
         text_with_links = classification["body_text"]
         for url, link in zip(classification["urls"], link_data_list):
             link_text = link.get("title") or link["final_url"]
-            anchor = f"<a href='{link['final_url']}'>{html_module.escape(link_text)}</a>"
+            anchor = _a(link["final_url"], html_module.escape(link_text))
             text_with_links = text_with_links.replace(url, anchor)
         text_with_links = text_with_links.replace("\n", "<br>")
         html_parts.append(f"<p>{text_with_links}</p>")
 
         for link in link_data_list:
+            byline = []
             if classification["tag"] == "YT" and link.get("channel"):
-                html_parts.append(f"<p style='{META_STYLE}'>{html_module.escape(link['channel'])}</p>")
+                byline.append(link["channel"])
             elif not link.get("reddit_subreddit"):
                 source = get_source_label(link.get("final_url", ""))
                 if source:
-                    html_parts.append(f"<p style='{META_STYLE}'>Source: {html_module.escape(source)}</p>")
+                    byline.append(source)
+            byline.append(captured_date)
+            html_parts.append(
+                f"<p style='{META_STYLE}'>{html_module.escape(' \u00b7 '.join(byline))}</p>"
+            )
             if link.get("published"):
-                html_parts.append(f"<p style='{META_STYLE}'>{html_module.escape(link['published'])}</p>")
+                html_parts.append(
+                    f"<p style='{META_STYLE}'>{html_module.escape(link['published'])}</p>"
+                )
             if link.get("description"):
                 html_parts.append(f"<p>{html_module.escape(link['description'])}</p>")
             if link.get("image_url"):
-                html_parts.append(
-                    f"<a href='{link['final_url']}'><img src='{link['image_url']}' style='max-width:400px;'></a>"
-                )
+                img_tag = f"<img src='{link['image_url']}' style='max-width:400px;'>"
+                html_parts.append(_a(link["final_url"], img_tag))
 
     elif classification["body_text"] and not link_data_list:
-        text_html = html_module.escape(classification["body_text"]).replace("\n", "<br>")
+        text_html = html_module.escape(classification["body_text"]).replace(
+            "\n", "<br>"
+        )
         html_parts.append(f"<p>{text_html}</p>")
+        html_parts.append(f"<p style='{META_STYLE}'>{captured_date}</p>")
 
     else:
         for link in link_data_list:
             if classification["tag"] == "YT":
-                html_parts.append(f"<p style='{TITLE_STYLE}'><a href='{link['final_url']}'>{html_module.escape(link.get('title') or link['final_url'])}</a></p>")
+                html_parts.append(
+                    f"<p style='{TITLE_STYLE}'>{_a(link['final_url'], html_module.escape(link.get('title') or link['final_url']))}</p>"
+                )
+                byline = [captured_date]
                 if link.get("channel"):
-                    html_parts.append(f"<p style='{META_STYLE}'>{html_module.escape(link['channel'])}</p>")
+                    byline.insert(0, link["channel"])
+                html_parts.append(
+                    f"<p style='{META_STYLE}'>{html_module.escape(' \u00b7 '.join(byline))}</p>"
+                )
                 if link.get("image_url"):
-                    html_parts.append(
-                        f"<a href='{link['final_url']}'><img src='{link['image_url']}' style='max-width:400px;'></a>"
+                    img_tag = (
+                        f"<img src='{link['image_url']}' style='max-width:400px;'>"
                     )
+                    html_parts.append(_a(link["final_url"], img_tag))
                 if link.get("description"):
-                    description_html = html_module.escape(link["description"]).replace("\n", "<br>")
+                    description_html = html_module.escape(link["description"]).replace(
+                        "\n", "<br>"
+                    )
                     html_parts.append(f"<p>{description_html}</p>")
-                html_parts.append(f"<p><a href='{link['final_url']}'>{link['final_url']}</a></p>")
+                html_parts.append(f"<p>{_a(link['final_url'], link['final_url'])}</p>")
             elif link.get("reddit_author") and link.get("reddit_subreddit"):
                 if link.get("reddit_method"):
-                    html_parts.append(f"<p style='color:#888;font-size:0.85em;'>[debug: {link['reddit_method']}]</p>")
-                html_parts.append(f"<p style='{TITLE_STYLE}'><a href='{link['final_url']}'>{html_module.escape(link.get('title') or link['final_url'])}</a></p>")
+                    log.info(f"Reddit method used for email: {link['reddit_method']}")
+                html_parts.append(
+                    f"<p style='{TITLE_STYLE}'>{_a(link['final_url'], html_module.escape(link.get('title') or link['final_url']))}</p>"
+                )
 
                 author_url = f"https://www.reddit.com/{link['reddit_author']}"
                 subreddit_url = f"https://www.reddit.com/{link['reddit_subreddit']}"
-                html_parts.append(
-                    f"<p style='{META_STYLE}'>submitted by <a href='{author_url}'>{html_module.escape(link['reddit_author'])}</a> "
-                    f"to <a href='{subreddit_url}'>{html_module.escape(link['reddit_subreddit'])}</a></p>"
+                byline_html = (
+                    f"submitted by {_a(author_url, html_module.escape(link['reddit_author']))} "
+                    f"to {_a(subreddit_url, html_module.escape(link['reddit_subreddit']))} \u00b7 {captured_date}"
                 )
+                html_parts.append(f"<p style='{META_STYLE}'>{byline_html}</p>")
 
                 actions = []
                 if link.get("reddit_link_url"):
-                    actions.append(f"<a href='{link['reddit_link_url']}'>[link]</a>")
+                    actions.append(_a(link["reddit_link_url"], "[link]"))
                 if link.get("reddit_comments_url"):
-                    actions.append(f"<a href='{link['reddit_comments_url']}'>[comments]</a>")
+                    actions.append(_a(link["reddit_comments_url"], "[comments]"))
                 if actions:
-                    html_parts.append(f"<p style='{META_STYLE}'>{', '.join(actions)}</p>")
+                    html_parts.append(
+                        f"<p style='{META_STYLE}'>{', '.join(actions)}</p>"
+                    )
 
                 if link.get("image_url"):
-                    html_parts.append(
-                        f"<a href='{link['final_url']}'><img src='{link['image_url']}' style='max-width:400px;'></a>"
+                    img_tag = (
+                        f"<img src='{link['image_url']}' style='max-width:400px;'>"
                     )
-                html_parts.append(f"<p><a href='{link['final_url']}'>{link['final_url']}</a></p>")
+                    html_parts.append(_a(link["final_url"], img_tag))
+                html_parts.append(f"<p>{_a(link['final_url'], link['final_url'])}</p>")
             else:
                 if link.get("reddit_method"):
-                    html_parts.append(f"<p style='color:#888;font-size:0.85em;'>[debug: {link['reddit_method']}]</p>")
-                html_parts.append(f"<p style='{TITLE_STYLE}'><a href='{link['final_url']}'>{html_module.escape(link.get('title') or link['final_url'])}</a></p>")
+                    log.info(f"Reddit method used for email: {link['reddit_method']}")
+                html_parts.append(
+                    f"<p style='{TITLE_STYLE}'>{_a(link['final_url'], html_module.escape(link.get('title') or link['final_url']))}</p>"
+                )
+                byline = []
                 source = get_source_label(link.get("final_url", ""))
                 if source:
-                    html_parts.append(f"<p style='{META_STYLE}'>Source: {html_module.escape(source)}</p>")
+                    byline.append(source)
                 if link.get("published"):
-                    html_parts.append(f"<p style='{META_STYLE}'>{html_module.escape(link['published'])}</p>")
+                    byline.append(link["published"])
+                byline.append(captured_date)
+                html_parts.append(
+                    f"<p style='{META_STYLE}'>{html_module.escape(' \u00b7 '.join(byline))}</p>"
+                )
                 if link.get("description"):
-                    html_parts.append(f"<p>{html_module.escape(link['description'])}</p>")
-                if link.get("image_url"):
                     html_parts.append(
-                        f"<a href='{link['final_url']}'><img src='{link['image_url']}' style='max-width:400px;'></a>"
+                        f"<p>{html_module.escape(link['description'])}</p>"
                     )
-                html_parts.append(f"<p><a href='{link['final_url']}'>{link['final_url']}</a></p>")
+                if link.get("image_url"):
+                    img_tag = (
+                        f"<img src='{link['image_url']}' style='max-width:400px;'>"
+                    )
+                    html_parts.append(_a(link["final_url"], img_tag))
+                html_parts.append(f"<p>{_a(link['final_url'], link['final_url'])}</p>")
 
-    if image_path and IMAGE_MODE == "attachment":
+    if image_path:
         html_parts.append(f"<p style='{META_STYLE}'>(image attached)</p>")
-    elif image_path and IMAGE_MODE == "inline":
-        html_parts.append(f"<img src='cid:embedded_image' style='max-width:400px;'>")
 
     msg.set_content("This email requires HTML to view properly.")
-    full_html = f"<html><body>{''.join(html_parts)}</body></html>"
+    card = f"<div style='{CARD_STYLE}'>{''.join(html_parts)}</div>"
+    full_html = f"<html><body>{card}</body></html>"
     msg.add_alternative(full_html, subtype="html")
 
     if image_path:
         image_bytes = image_path.read_bytes()
         subtype = image_path.suffix.lstrip(".").lower() or "png"
-        if IMAGE_MODE == "attachment":
-            msg.add_attachment(image_bytes, maintype="image", subtype=subtype, filename=image_path.name)
-        else:
-            # NOTE: proper inline embedding needs a bit more MIME structure than
-            # this simple version handles. Flagging as a follow-up once IMAGE_MODE
-            # is actually decided - attachment mode works as written above.
-            msg.add_attachment(image_bytes, maintype="image", subtype=subtype, filename=image_path.name)
+        msg.add_attachment(
+            image_bytes, maintype="image", subtype=subtype, filename=image_path.name
+        )
 
     with smtplib.SMTP_SSL("smtp.gmail.com", 465) as smtp:
         smtp.login(GMAIL_ADDRESS, GMAIL_APP_PASSWORD)
         smtp.send_message(msg)
 
+
 # ---------------------------------------------------------------------------
 # STEP 5 - rename and move
 # ---------------------------------------------------------------------------
+
 
 def unique_path(folder: Path, name: str, ext: str) -> Path:
     """
@@ -778,23 +884,36 @@ def finalize_note(note_path: Path, tag: str, failed: bool, image_path: Path = No
 
         if image_path and image_path.exists():
             old_image_name = image_path.name
-            img_dest = unique_path(ARCHIVE_DIR, f"{timestamp}_{tag}", image_path.suffix.lower())
+            img_dest = unique_path(
+                ARCHIVE_DIR, f"{timestamp}_{tag}", image_path.suffix.lower()
+            )
             image_path.rename(img_dest)
 
             # the embed in the note text still points at the image's old
             # filename; rewrite it to match the new archived name so the
-            # link doesn't break once both files are moved
+            # link doesn't break once both files are moved. find_embedded_image()
+            # accepts both Obsidian wikilink (![[name]]) and markdown (![alt](name))
+            # embed syntax, so both need rewriting here too, not just wikilink.
             note_text = dest.read_text(encoding="utf-8")
-            updated_text = note_text.replace(f"![[{old_image_name}]]", f"![[{img_dest.name}]]")
+            updated_text = note_text.replace(
+                f"![[{old_image_name}]]", f"![[{img_dest.name}]]"
+            )
+            markdown_embed = re.compile(
+                r"(!\[.*?\]\()" + re.escape(old_image_name) + r"(\))"
+            )
+            updated_text = markdown_embed.sub(
+                rf"\g<1>{img_dest.name}\g<2>", updated_text
+            )
             dest.write_text(updated_text, encoding="utf-8")
-
 
 
 # ---------------------------------------------------------------------------
 # MAIN
 # ---------------------------------------------------------------------------
 
+
 def process_note(note_path: Path):
+    """Runs one capture note through the full pipeline: classify, scrape any links, email it, then archive it."""
     text = note_path.read_text(encoding="utf-8")
     image_path = find_embedded_image(note_path)
     classification = classify_note(text, has_image=image_path is not None)
@@ -805,9 +924,16 @@ def process_note(note_path: Path):
             link_data_list.append(resolve_and_scrape(url))
         except Exception as e:
             print(f"  Link failed, continuing with a bare link: {url} ({e})")
-            link_data_list.append({"final_url": url, "title": None, "description": None, "image_url": None})
+            link_data_list.append(
+                {
+                    "final_url": url,
+                    "title": None,
+                    "description": None,
+                    "image_url": None,
+                }
+            )
 
-    build_and_send_email(classification, link_data_list, image_path)
+    build_and_send_email(classification, link_data_list, image_path, note_path)
     finalize_note(note_path, classification["tag"], failed=False, image_path=image_path)
 
 
@@ -839,21 +965,26 @@ def purge_old_archives():
                     path.unlink()
                     deleted_count += 1
 
-
     print(f"Purge: deleted {deleted_count} file(s) older than {PURGE_AFTER_DAYS} days.")
     PURGE_MARKER_FILE.write_text(now.isoformat(), encoding="utf-8")
+
 
 LOCK_FILE = VAULT_ROOT / ".watcher.lock"
 
 
 def run_watcher():
+    """Main entry point: claims the lock, processes every unprocessed note and orphan image, then purges old archives."""
     if LOCK_FILE.exists():
         lock_age = datetime.now() - datetime.fromtimestamp(LOCK_FILE.stat().st_mtime)
         if lock_age.total_seconds() < 3600:
-            print("Another run appears to be in progress (lock file present and recent). Skipping this run.")
+            print(
+                "Another run appears to be in progress (lock file present and recent). Skipping this run."
+            )
             return
         else:
-            print("Stale lock file found (older than an hour); removing it and continuing.")
+            print(
+                "Stale lock file found (older than an hour); removing it and continuing."
+            )
 
     LOCK_FILE.write_text(datetime.now().isoformat(), encoding="utf-8")
     try:
@@ -896,8 +1027,6 @@ def run_watcher():
         LOCK_FILE.unlink(missing_ok=True)
 
 
-
-
 def wait_before_exit(timeout=5):
     """
     Manual-run convenience only. If there's no console attached (e.g. run
@@ -907,7 +1036,9 @@ def wait_before_exit(timeout=5):
     try:
         if not sys.stdout.isatty():
             return
-        print(f"\nDone. Press any key within {timeout} seconds to keep this window open...")
+        print(
+            f"\nDone. Press any key within {timeout} seconds to keep this window open..."
+        )
         start = time.time()
         while time.time() - start < timeout:
             if msvcrt.kbhit():
