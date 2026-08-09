@@ -13,7 +13,7 @@ from datetime import datetime, timedelta
 from email.message import EmailMessage
 from email.utils import formataddr
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 
 import requests
 from bs4 import BeautifulSoup, XMLParsedAsHTMLWarning
@@ -266,6 +266,53 @@ def fetch_with_backoff(url: str, headers: dict, timeout: int, max_attempts: int 
     return resp
 
 
+META_REFRESH_PATTERN = re.compile(
+    r'content=["\']?\s*\d+\s*;\s*url=([^"\'>]+)', re.IGNORECASE
+)
+JS_REDIRECT_PATTERN = re.compile(
+    r'location(?:\.href)?\s*=\s*["\']([^"\']+)["\']'
+    r'|location\.replace\(\s*["\']([^"\']+)["\']\s*\)',
+    re.IGNORECASE,
+)
+
+
+def follow_client_side_redirect(resp, headers: dict, max_hops: int = 3):
+    """
+    requests only follows real HTTP 3xx redirects. Some click-tracking links
+    (e.g. Substack's) return a 200 with a client-side redirect instead - a
+    <meta http-equiv="refresh"> tag or a JS location.href assignment, kept as
+    a fallback for email clients that render HTML but block JavaScript - and
+    requests has no way to see either. This checks for both patterns and
+    follows them manually, up to max_hops times, so those links resolve to
+    their real destination instead of stalling on the tracking page.
+
+    NOTE: built against the standard technique these services use, not
+    verified against a live Substack redirect page directly (fetch attempts
+    were rate-limited while writing this). Confirm it actually resolves
+    before relying on it.
+    """
+    for _ in range(max_hops):
+        match = META_REFRESH_PATTERN.search(resp.text)
+        next_url = match.group(1).strip().strip("\"'") if match else None
+        if not next_url:
+            js_match = JS_REDIRECT_PATTERN.search(resp.text)
+            if js_match:
+                next_url = js_match.group(1) or js_match.group(2)
+        if not next_url:
+            break
+        if next_url.startswith("/"):
+            parsed = urlparse(resp.url)
+            next_url = f"{parsed.scheme}://{parsed.netloc}{next_url}"
+        try:
+            resp = requests.get(
+                next_url, allow_redirects=True, timeout=10, headers=headers
+            )
+        except requests.RequestException as e:
+            print(f"Client-side redirect follow failed: {e}")
+            break
+    return resp
+
+
 def resolve_and_scrape(url: str):
     """
     Follow redirects to the final URL. If it's a YouTube link, use oEmbed.
@@ -278,6 +325,7 @@ def resolve_and_scrape(url: str):
     else:
         resp = requests.get(url, allow_redirects=True, timeout=10, headers=HEADERS)
 
+    resp = follow_client_side_redirect(resp, HEADERS)
     final_url = resp.url
 
     if "youtube.com" in final_url or "youtu.be" in final_url:
@@ -469,7 +517,7 @@ def scrape_youtube_oembed(url: str):
     has no description field at all. To get a real description, also fetch
     the video page directly and pull its og:description tag.
     """
-    api = f"https://www.youtube.com/oembed?url={url}&format=json"
+    api = f"https://www.youtube.com/oembed?url={quote(url, safe='')}&format=json"
     resp = requests.get(api, timeout=10, headers=HEADERS)
 
     if resp.status_code != 200:
@@ -658,6 +706,8 @@ CARD_STYLE = (
 TITLE_STYLE = "font-size:16px;font-weight:bold;"
 META_STYLE = "color:#666;font-size:12px;"
 LINK_COLOR = "#3a6ea5"
+BYLINE_SEP = " \u00b7 "  # middle dot; kept as a plain constant (not inline in an
+# f-string) since Python < 3.12 disallows a backslash escape inside an f-string's {} part
 
 
 def _a(url: str, inner_html: str) -> str:
@@ -726,7 +776,7 @@ def build_and_send_email(
                     byline.append(source)
             byline.append(captured_date)
             html_parts.append(
-                f"<p style='{META_STYLE}'>{html_module.escape(' \u00b7 '.join(byline))}</p>"
+                f"<p style='{META_STYLE}'>{html_module.escape(BYLINE_SEP.join(byline))}</p>"
             )
             if link.get("published"):
                 html_parts.append(
@@ -755,7 +805,7 @@ def build_and_send_email(
                 if link.get("channel"):
                     byline.insert(0, link["channel"])
                 html_parts.append(
-                    f"<p style='{META_STYLE}'>{html_module.escape(' \u00b7 '.join(byline))}</p>"
+                    f"<p style='{META_STYLE}'>{html_module.escape(BYLINE_SEP.join(byline))}</p>"
                 )
                 if link.get("image_url"):
                     img_tag = (
@@ -813,7 +863,7 @@ def build_and_send_email(
                     byline.append(link["published"])
                 byline.append(captured_date)
                 html_parts.append(
-                    f"<p style='{META_STYLE}'>{html_module.escape(' \u00b7 '.join(byline))}</p>"
+                    f"<p style='{META_STYLE}'>{html_module.escape(BYLINE_SEP.join(byline))}</p>"
                 )
                 if link.get("description"):
                     html_parts.append(
@@ -933,6 +983,11 @@ def process_note(note_path: Path):
                 }
             )
 
+    if classification["tag"] != "IMG" and any(
+        YOUTUBE_PATTERN.search(link.get("final_url", "")) for link in link_data_list
+    ):
+        classification["tag"] = "YT"
+    
     build_and_send_email(classification, link_data_list, image_path, note_path)
     finalize_note(note_path, classification["tag"], failed=False, image_path=image_path)
 
