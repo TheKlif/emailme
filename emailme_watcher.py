@@ -689,30 +689,23 @@ def get_source_label(url):
 
 
 # ---------------------------------------------------------------------------
-# Shared email styling - matches the boxed-card look used by r2g and the
-# Mastodon trending digest (output style guide, Category A)
+# Shared email styling - same S_* constants and values as fed_digest.py
+# (output style guide, Category A). All styles inline (Gmail strips
+# <head><style> in some rendering contexts).
 # ---------------------------------------------------------------------------
 
-CARD_STYLE = (
-    "display:inline-block;"
-    "max-width:60ch;"
-    "border:1px solid #ccc;"
-    "border-radius:8px;"
-    "padding:16px;"
-    'background:#e6e6df;'
-    'font-family:-apple-system,"Segoe UI",Helvetica,Arial,sans-serif;'
-)
-
-TITLE_STYLE = "font-size:16px;font-weight:bold;"
-META_STYLE = "color:#666;font-size:12px;"
-LINK_COLOR = "#3a6ea5"
+S_BODY = "font-family:'Atkinson Hyperlegible',-apple-system,Segoe UI,Helvetica,Arial,sans-serif;background:#123524;color:#F0EBE0;max-width:680px;margin:0 auto;padding:24px 16px;"
+S_TAGBOX = "border:1px solid #2F5B3E;border-radius:8px;padding:12px 16px;margin:0;background:#1A4A30;"
+S_TAGNAME = "font-family:'Bricolage Grotesque',-apple-system,Segoe UI,Helvetica,Arial,sans-serif;font-weight:bold;font-size:15px;color:#FF8C42;"
+S_META = "color:#B8AFA0;font-size:12px;"
+S_LINK = "color:#FF8C42;text-decoration:none;"
 BYLINE_SEP = " \u00b7 "  # middle dot; kept as a plain constant (not inline in an
 # f-string) since Python < 3.12 disallows a backslash escape inside an f-string's {} part
 
 
 def _a(url: str, inner_html: str) -> str:
     """A single styled <a> tag - link color, no underline - used everywhere a link appears in the email body."""
-    return f"<a href='{url}' style='color:{LINK_COLOR};text-decoration:none;'>{inner_html}</a>"
+    return f"<a href='{url}' style='{S_LINK}'>{inner_html}</a>"
 
 
 def format_captured_date(note_path: Path) -> str:
@@ -776,11 +769,11 @@ def build_and_send_email(
                     byline.append(source)
             byline.append(captured_date)
             html_parts.append(
-                f"<p style='{META_STYLE}'>{html_module.escape(BYLINE_SEP.join(byline))}</p>"
+                f"<p style='{S_META}'>{html_module.escape(BYLINE_SEP.join(byline))}</p>"
             )
             if link.get("published"):
                 html_parts.append(
-                    f"<p style='{META_STYLE}'>{html_module.escape(link['published'])}</p>"
+                    f"<p style='{S_META}'>{html_module.escape(link['published'])}</p>"
                 )
             if link.get("description"):
                 html_parts.append(f"<p>{html_module.escape(link['description'])}</p>")
@@ -793,19 +786,19 @@ def build_and_send_email(
             "\n", "<br>"
         )
         html_parts.append(f"<p>{text_html}</p>")
-        html_parts.append(f"<p style='{META_STYLE}'>{captured_date}</p>")
+        html_parts.append(f"<p style='{S_META}'>{captured_date}</p>")
 
     else:
         for link in link_data_list:
             if classification["tag"] == "YT":
                 html_parts.append(
-                    f"<p style='{TITLE_STYLE}'>{_a(link['final_url'], html_module.escape(link.get('title') or link['final_url']))}</p>"
+                    f"<p style='{S_TAGNAME}'>{_a(link['final_url'], html_module.escape(link.get('title') or link['final_url']))}</p>"
                 )
                 byline = [captured_date]
                 if link.get("channel"):
                     byline.insert(0, link["channel"])
                 html_parts.append(
-                    f"<p style='{META_STYLE}'>{html_module.escape(BYLINE_SEP.join(byline))}</p>"
+                    f"<p style='{S_META}'>{html_module.escape(BYLINE_SEP.join(byline))}</p>"
                 )
                 if link.get("image_url"):
                     img_tag = (
@@ -822,7 +815,7 @@ def build_and_send_email(
                 if link.get("reddit_method"):
                     log.info(f"Reddit method used for email: {link['reddit_method']}")
                 html_parts.append(
-                    f"<p style='{TITLE_STYLE}'>{_a(link['final_url'], html_module.escape(link.get('title') or link['final_url']))}</p>"
+                    f"<p style='{S_TAGNAME}'>{_a(link['final_url'], html_module.escape(link.get('title') or link['final_url']))}</p>"
                 )
 
                 author_url = f"https://www.reddit.com/{link['reddit_author']}"
@@ -831,7 +824,7 @@ def build_and_send_email(
                     f"submitted by {_a(author_url, html_module.escape(link['reddit_author']))} "
                     f"to {_a(subreddit_url, html_module.escape(link['reddit_subreddit']))} \u00b7 {captured_date}"
                 )
-                html_parts.append(f"<p style='{META_STYLE}'>{byline_html}</p>")
+                html_parts.append(f"<p style='{S_META}'>{byline_html}</p>")
 
                 actions = []
                 if link.get("reddit_link_url"):
@@ -840,7 +833,7 @@ def build_and_send_email(
                     actions.append(_a(link["reddit_comments_url"], "[comments]"))
                 if actions:
                     html_parts.append(
-                        f"<p style='{META_STYLE}'>{', '.join(actions)}</p>"
+                        f"<p style='{S_META}'>{', '.join(actions)}</p>"
                     )
 
                 if link.get("image_url"):
@@ -853,7 +846,7 @@ def build_and_send_email(
                 if link.get("reddit_method"):
                     log.info(f"Reddit method used for email: {link['reddit_method']}")
                 html_parts.append(
-                    f"<p style='{TITLE_STYLE}'>{_a(link['final_url'], html_module.escape(link.get('title') or link['final_url']))}</p>"
+                    f"<p style='{S_TAGNAME}'>{_a(link['final_url'], html_module.escape(link.get('title') or link['final_url']))}</p>"
                 )
                 byline = []
                 source = get_source_label(link.get("final_url", ""))
@@ -863,7 +856,7 @@ def build_and_send_email(
                     byline.append(link["published"])
                 byline.append(captured_date)
                 html_parts.append(
-                    f"<p style='{META_STYLE}'>{html_module.escape(BYLINE_SEP.join(byline))}</p>"
+                    f"<p style='{S_META}'>{html_module.escape(BYLINE_SEP.join(byline))}</p>"
                 )
                 if link.get("description"):
                     html_parts.append(
@@ -877,11 +870,11 @@ def build_and_send_email(
                 html_parts.append(f"<p>{_a(link['final_url'], link['final_url'])}</p>")
 
     if image_path:
-        html_parts.append(f"<p style='{META_STYLE}'>(image attached)</p>")
+        html_parts.append(f"<p style='{S_META}'>(image attached)</p>")
 
     msg.set_content("This email requires HTML to view properly.")
-    card = f"<div style='{CARD_STYLE}'>{''.join(html_parts)}</div>"
-    full_html = f"<html><body>{card}</body></html>"
+    card = f"<div style='{S_TAGBOX}'>{''.join(html_parts)}</div>"
+    full_html = f"<html><body style=\"margin:0;padding:0;background:#123524;\"><div style=\"{S_BODY}\">{card}</div></body></html>"
     msg.add_alternative(full_html, subtype="html")
 
     if image_path:
@@ -1114,3 +1107,4 @@ if __name__ == "__main__":
         print("\nUnexpected error:")
         traceback.print_exc()
     wait_before_exit()
+    
