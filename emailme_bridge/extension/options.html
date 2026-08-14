@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>emailme Bridge - Settings</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      max-width: 480px;
+      margin: 40px auto;
+      color: #171717;
+    }
+    label {
+      display: block;
+      font-weight: 600;
+      margin-bottom: 6px;
+    }
+    input[type="text"] {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 8px;
+      font-size: 14px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
+    }
+    p.hint {
+      color: #666;
+      font-size: 13px;
+      margin-top: 6px;
+    }
+    button {
+      margin-top: 16px;
+      padding: 8px 20px;
+      background: #2e7d32;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      font-size: 14px;
+      cursor: pointer;
+    }
+    button:hover {
+      background: #256428;
+    }
+    #status {
+      margin-left: 12px;
+      color: #2e7d32;
+      font-size: 14px;
+    }
+  </style>
+</head>
+<body>
+  <label for="targetFolder">Target capture folder (this device)</label>
+  <input type="text" id="targetFolder" placeholder="e.g. D:\Obsidian\Klif-Create\_emailme">
+  <p class="hint">
+    Leave blank to use the default folder configured in config.py on this
+    machine. Set this to point the extension at a different synced folder
+    path - useful when the same extension is installed on more than one
+    computer, since the synced path isn't always the same on every device.
+  </p>
+  <button id="save">Save</button>
+  <span id="status"></span>
+  <script src="options.js"></script>
+</body>
+</html>

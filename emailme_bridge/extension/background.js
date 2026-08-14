@@ -85,7 +85,13 @@ function notifyAll(success, tabId) {
 }
 
 function sendAndNotify(payload, tabId) {
-  browser.runtime.sendNativeMessage("com.klif.emailme_bridge", payload)
+  browser.storage.local.get("targetFolder")
+    .then(result => {
+      if (result.targetFolder) {
+        payload.targetFolder = result.targetFolder;
+      }
+      return browser.runtime.sendNativeMessage("com.klif.emailme_bridge", payload);
+    })
     .then(response => {
       console.log("Native host responded:", response);
       notifyAll(response && response.status === "ok", tabId);

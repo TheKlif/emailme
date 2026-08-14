@@ -1,9 +1,13 @@
 {
   "manifest_version": 2,
   "name": "Emailme Bridge",
-  "version": "1.2",
+  "version": "1.3",
   "description": "Sends selected text, links, images, or the current page to a local capture pipeline via native messaging.",
-  "permissions": ["nativeMessaging", "tabs", "contextMenus", "<all_urls>", "notifications"],
+  "permissions": ["nativeMessaging", "tabs", "contextMenus", "<all_urls>", "notifications", "storage"],
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": true
+  },
   "browser_action": {
     "default_title": "#emailme",
     "default_icon": {

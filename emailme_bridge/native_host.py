@@ -32,6 +32,27 @@ def send_message(message_content):
     sys.stdout.buffer.flush()
 
 
+def resolve_vault_path(message: dict) -> Path:
+    """
+    Uses the folder set on the extension's options page
+    (message["targetFolder"]) if one was configured, otherwise falls back
+    to config.py's VAULT_ROOT - so the extension works with zero setup on
+    a fresh install, but can be pointed at a different machine's synced
+    folder without ever touching this script.
+    Raises ValueError if a configured folder doesn't actually exist,
+    rather than silently falling back to the default - a typo in the
+    options page should surface as a failed capture, not a capture
+    quietly landing in the wrong folder.
+    """
+    configured = (message.get("targetFolder") or "").strip()
+    if not configured:
+        return VAULT_PATH
+    path = Path(configured)
+    if not path.is_dir():
+        raise ValueError(f"Configured target folder does not exist: {configured}")
+    return path
+
+
 def unique_capture_path(vault_path: Path, timestamp: str) -> Path:
     """
     Returns vault_path/capture_<timestamp>.md, or _2/_3/etc if that name is
@@ -49,8 +70,15 @@ def unique_capture_path(vault_path: Path, timestamp: str) -> Path:
 def main():
     """Reads one capture payload from the browser extension and writes it as a new vault note."""
     message = read_message()
+
+    try:
+        vault_path = resolve_vault_path(message)
+    except ValueError as e:
+        send_message({"status": "error", "error": str(e)})
+        return
+
     timestamp = datetime.now().strftime("%Y.%m.%d_%H.%M.%S")
-    output_file = unique_capture_path(VAULT_PATH, timestamp)
+    output_file = unique_capture_path(vault_path, timestamp)
 
     parts = []
     if message.get("selection"):
