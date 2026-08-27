@@ -13,7 +13,7 @@ from datetime import datetime, timedelta
 from email.message import EmailMessage
 from email.utils import formataddr
 from pathlib import Path
-from urllib.parse import quote, urlparse
+from urllib.parse import quote, urlparse, parse_qs
 
 import requests
 from bs4 import BeautifulSoup, XMLParsedAsHTMLWarning
@@ -333,6 +333,23 @@ def follow_client_side_redirect(resp, headers: dict, max_hops: int = 3):
     return resp
 
 
+def unwrap_youtube_redirect(url: str):
+    """
+    youtube.com/redirect?...&q=<target>&v=... is YouTube's click-tracking
+    wrapper for outbound links in video descriptions. Hostname says
+    youtube.com but the real destination is the "q" param, which is
+    frequently a non-YouTube page. Neither a real HTTP redirect nor a
+    meta-refresh/JS one, so requests and follow_client_side_redirect both
+    miss it. Returns the decoded target URL if this is a wrapper link,
+    else None.
+    """
+    parsed = urlparse(url)
+    if "youtube.com" not in parsed.netloc.lower() or parsed.path != "/redirect":
+        return None
+    q = parse_qs(parsed.query).get("q")
+    return q[0] if q else None
+
+
 def resolve_and_scrape(url: str):
     """
     Follow redirects to the final URL, then hand off to the right scraper
@@ -349,6 +366,12 @@ def resolve_and_scrape(url: str):
 
     resp = follow_client_side_redirect(resp, HEADERS)
     final_url = resp.url
+
+    redirect_target = unwrap_youtube_redirect(final_url)
+    if redirect_target:
+        resp = requests.get(redirect_target, allow_redirects=True, timeout=10, headers=HEADERS)
+        resp = follow_client_side_redirect(resp, HEADERS)
+        final_url = resp.url
 
     if "youtube.com" in final_url or "youtu.be" in final_url:
         yt_data = scrape_youtube_oembed(final_url)
@@ -1160,11 +1183,17 @@ def process_note(note_path: Path):
                 }
             )
 
-    if classification["tag"] != "IMG" and any(
-        YOUTUBE_PATTERN.search(link.get("final_url", "")) for link in link_data_list
-    ):
-        classification["tag"] = "YT"
-    
+    if classification["tag"] != "IMG":
+        any_youtube_resolved = any(
+            YOUTUBE_PATTERN.search(link.get("final_url", "")) for link in link_data_list
+        )
+        if any_youtube_resolved:
+            classification["tag"] = "YT"
+        elif classification["tag"] == "YT":
+            # Raw text looked like YouTube (e.g. a youtube.com/redirect
+            # wrapper) but resolution proved otherwise - downgrade.
+            classification["tag"] = "URL"
+                
     build_and_send_email(classification, link_data_list, image_path, note_path)
     finalize_note(note_path, classification["tag"], failed=False, image_path=image_path)
 
