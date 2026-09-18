@@ -3,7 +3,6 @@ import json
 import logging
 import msvcrt
 import re
-import shutil
 import smtplib
 import sys
 import time
@@ -13,11 +12,10 @@ from datetime import datetime, timedelta
 from email.message import EmailMessage
 from email.utils import formataddr
 from pathlib import Path
-from urllib.parse import quote, urlparse, parse_qs
+from urllib.parse import parse_qs, quote, urlparse
 
 import requests
 from bs4 import BeautifulSoup, XMLParsedAsHTMLWarning
-
 from config import GMAIL_ADDRESS, GMAIL_APP_PASSWORD
 from config import VAULT_ROOT as VAULT_ROOT_STR
 
@@ -74,6 +72,7 @@ def get_retry_attempt(path: Path) -> int:
     """
     match = FAILED_ATTEMPT_PATTERN.match(path.name)
     return int(match.group(1)) if match else 0
+
 
 URL_PATTERN = re.compile(r"https?://[^\s)\]]+")
 YOUTUBE_PATTERN = re.compile(r"(youtube\.com|youtu\.be)", re.IGNORECASE)
@@ -136,7 +135,6 @@ def classify_note(text: str, has_image: bool):
     body_text = text.strip()
     text_without_links = URL_PATTERN.sub("", text).strip()
     has_extra_text = len(text_without_links) > 0
-    has_text = len(body_text) > 0
 
     if has_image:
         tag = "IMG"
@@ -369,7 +367,9 @@ def resolve_and_scrape(url: str):
 
     redirect_target = unwrap_youtube_redirect(final_url)
     if redirect_target:
-        resp = requests.get(redirect_target, allow_redirects=True, timeout=10, headers=HEADERS)
+        resp = requests.get(
+            redirect_target, allow_redirects=True, timeout=10, headers=HEADERS
+        )
         resp = follow_client_side_redirect(resp, HEADERS)
         final_url = resp.url
 
@@ -455,11 +455,7 @@ def scrape_reddit_link(final_url: str, resp):
     # Layer 3: Reddit's JSON endpoint, kept as a real attempt so it
     # self-heals automatically if Reddit's block ever lifts
     json_data = scrape_reddit_json(final_url)
-    if (
-        json_data
-        and json_data.get("title")
-        and not json_data["title"].endswith(")")
-    ):
+    if json_data and json_data.get("title") and not json_data["title"].endswith(")"):
         log.info("Reddit method used: JSON")
         json_data["reddit_method"] = "JSON"
         return json_data
@@ -531,8 +527,6 @@ def scrape_generic_link(final_url: str, resp):
     }
 
 
-
-
 def extract_youtube_full_description(page_html: str):
     """
     YouTube truncates its og:description meta tag to roughly 160 characters
@@ -565,13 +559,17 @@ def extract_youtube_full_description(page_html: str):
                 ) or video_secondary_info.get("description")
                 if description_obj and description_obj.get("content"):
                     full_text = description_obj["content"]
-                    log.info(f"YouTube full description extracted: {len(full_text)} chars")
+                    log.info(
+                        f"YouTube full description extracted: {len(full_text)} chars"
+                    )
                     return full_text
                 if description_obj and description_obj.get("runs"):
                     full_text = "".join(
                         run.get("text", "") for run in description_obj["runs"]
                     )
-                    log.info(f"YouTube full description extracted: {len(full_text)} chars")
+                    log.info(
+                        f"YouTube full description extracted: {len(full_text)} chars"
+                    )
                     return full_text
     except (KeyError, IndexError, TypeError):
         pass
@@ -884,13 +882,19 @@ def render_youtube_card(link: dict, captured_date: str) -> list:
     byline = [captured_date]
     if link.get("channel"):
         byline.insert(0, link["channel"])
-    parts.append(f"<p style='{S_META}'>{html_module.escape(BYLINE_SEP.join(byline))}</p>")
+    parts.append(
+        f"<p style='{S_META}'>{html_module.escape(BYLINE_SEP.join(byline))}</p>"
+    )
 
     yt_facts = [
-        f for f in (link.get("view_count"), link.get("upload_date"), link.get("duration")) if f
+        f
+        for f in (link.get("view_count"), link.get("upload_date"), link.get("duration"))
+        if f
     ]
     if yt_facts:
-        parts.append(f"<p style='{S_META}'>{html_module.escape(BYLINE_SEP.join(yt_facts))}</p>")
+        parts.append(
+            f"<p style='{S_META}'>{html_module.escape(BYLINE_SEP.join(yt_facts))}</p>"
+        )
 
     if link.get("image_url"):
         img_tag = f"<img src='{link['image_url']}' style='max-width:400px;'>"
@@ -949,7 +953,9 @@ def render_generic_link_card(link: dict, captured_date: str) -> list:
     if link.get("published"):
         byline.append(link["published"])
     byline.append(captured_date)
-    parts.append(f"<p style='{S_META}'>{html_module.escape(BYLINE_SEP.join(byline))}</p>")
+    parts.append(
+        f"<p style='{S_META}'>{html_module.escape(BYLINE_SEP.join(byline))}</p>"
+    )
 
     if link.get("description"):
         parts.append(f"<p>{html_module.escape(link['description'])}</p>")
@@ -1007,7 +1013,11 @@ def build_and_send_email(
             if classification["tag"] == "YT":
                 yt_facts = [
                     f
-                    for f in (link.get("view_count"), link.get("upload_date"), link.get("duration"))
+                    for f in (
+                        link.get("view_count"),
+                        link.get("upload_date"),
+                        link.get("duration"),
+                    )
                     if f
                 ]
                 if yt_facts:
@@ -1041,7 +1051,7 @@ def build_and_send_email(
 
     msg.set_content("This email requires HTML to view properly.")
     card = f"<div style='{S_TAGBOX}'>{''.join(html_parts)}</div>"
-    full_html = f"<html><body style=\"margin:0;padding:0;background:#123524;\"><div style=\"{S_BODY}\">{card}</div></body></html>"
+    full_html = f'<html><body style="margin:0;padding:0;background:#123524;"><div style="{S_BODY}">{card}</div></body></html>'
     msg.add_alternative(full_html, subtype="html")
 
     if image_path:
@@ -1092,14 +1102,18 @@ def finalize_note(
         original_timestamp = extract_timestamp(note_path).strftime("%Y.%m.%d_%H.%M.%S")
         attempt = get_retry_attempt(note_path) + 1
         if attempt >= MAX_RETRY_ATTEMPTS:
-            dest = unique_path(VAULT_ROOT, f"_FAILED.IGNORED.{original_timestamp}", f"_{tag}.md")
+            dest = unique_path(
+                VAULT_ROOT, f"_FAILED.IGNORED.{original_timestamp}", f"_{tag}.md"
+            )
             note_path.rename(dest)
             try:
                 send_give_up_notification(dest, tag, error)
             except Exception as notify_error:
                 log.error(f"Also failed to send give-up notification: {notify_error}")
         else:
-            dest = unique_path(VAULT_ROOT, f"_FAILED.{attempt}.{original_timestamp}", f"_{tag}.md")
+            dest = unique_path(
+                VAULT_ROOT, f"_FAILED.{attempt}.{original_timestamp}", f"_{tag}.md"
+            )
             note_path.rename(dest)
         # image is left where it is on failure, so it can be retried
     else:
@@ -1140,7 +1154,9 @@ def send_give_up_notification(note_path: Path, tag: str, error: str):
     review instead of silently sitting in root forever with no signal.
     """
     msg = EmailMessage()
-    msg["Subject"] = " ".join(f"[{tag}] Failed {MAX_RETRY_ATTEMPTS}x, giving up #emailme".split())
+    msg["Subject"] = " ".join(
+        f"[{tag}] Failed {MAX_RETRY_ATTEMPTS}x, giving up #emailme".split()
+    )
     msg["From"] = formataddr(("#emailme", GMAIL_ADDRESS))
     msg["To"] = EMAIL_TO
     body = (
@@ -1193,7 +1209,7 @@ def process_note(note_path: Path):
             # Raw text looked like YouTube (e.g. a youtube.com/redirect
             # wrapper) but resolution proved otherwise - downgrade.
             classification["tag"] = "URL"
-                
+
     build_and_send_email(classification, link_data_list, image_path, note_path)
     finalize_note(note_path, classification["tag"], failed=False, image_path=image_path)
 
@@ -1226,7 +1242,9 @@ def purge_old_archives():
                     path.unlink()
                     deleted_count += 1
 
-    log.info(f"Purge: deleted {deleted_count} file(s) older than {PURGE_AFTER_DAYS} days.")
+    log.info(
+        f"Purge: deleted {deleted_count} file(s) older than {PURGE_AFTER_DAYS} days."
+    )
     PURGE_MARKER_FILE.write_text(now.isoformat(), encoding="utf-8")
 
 
@@ -1277,7 +1295,9 @@ def run_watcher():
                     text = note_path.read_text(encoding="utf-8")
                     has_image = find_embedded_image(note_path) is not None
                     classification = classify_note(text, has_image)
-                    finalize_note(note_path, classification["tag"], failed=True, error=str(e))
+                    finalize_note(
+                        note_path, classification["tag"], failed=True, error=str(e)
+                    )
                 except Exception as recovery_error:
                     log.error(f"ALSO FAILED to mark as failed: {recovery_error}")
                     traceback.print_exc()
